@@ -8,6 +8,7 @@
 #![cfg_attr(not(doc), no_main)]
 #![deny(missing_docs)]
 
+use capsules::led_matrix::LedMatrixLed;
 use kernel::capabilities;
 use kernel::component::Component;
 use kernel::dynamic_deferred_call::{DynamicDeferredCall, DynamicDeferredCallClientState};
@@ -112,6 +113,14 @@ pub struct MicroBit {
 
     scheduler: &'static RoundRobinSched<'static>,
     systick: cortexm4::systick::SysTick,
+    glyph_display: &'static drivers::glyph_display::GlyphDisplay<
+        'static,
+        LedMatrixLed<
+            'static,
+            nrf52::gpio::GPIOPin<'static>,
+            capsules::virtual_alarm::VirtualMuxAlarm<'static, nrf52::rtc::Rtc<'static>>
+        >
+    >
 }
 
 impl SyscallDriverLookup for MicroBit {
@@ -134,6 +143,7 @@ impl SyscallDriverLookup for MicroBit {
             capsules::buzzer_driver::DRIVER_NUM => f(Some(self.buzzer)),
             capsules::app_flash_driver::DRIVER_NUM => f(Some(self.app_flash)),
             capsules::sound_pressure::DRIVER_NUM => f(Some(self.sound_pressure)),
+            drivers::glyph_display::DRIVER_NUM => f(Some(self.glyph_display)),
             kernel::ipc::DRIVER_NUM => f(Some(&self.ipc)),
             _ => f(None),
         }
@@ -532,6 +542,7 @@ pub unsafe fn main() {
     // LED Matrix
     //--------------------------------------------------------------------------
 
+
     let led = components::led_matrix_component_helper!(
         nrf52833::gpio::GPIOPin,
         nrf52::rtc::Rtc<'static>,
@@ -555,6 +566,51 @@ pub unsafe fn main() {
         nrf52833::gpio::GPIOPin,
         nrf52::rtc::Rtc<'static>
     ));
+
+    //--------------------------------------------------------------------------
+    // Glyph display (5x5 LED matrix)
+    //--------------------------------------------------------------------------
+    let glyph_display = static_init!(
+        drivers::glyph_display::GlyphDisplay<
+            'static,
+            LedMatrixLed<
+                'static,
+                nrf52::gpio::GPIOPin<'static>,
+                capsules::virtual_alarm::VirtualMuxAlarm<'static, nrf52::rtc::Rtc<'static>>
+            >
+        >,
+        drivers::glyph_display::GlyphDisplay::new(components::led_matrix_leds!(
+            nrf52::gpio::GPIOPin<'static>,
+            capsules::virtual_alarm::VirtualMuxAlarm<'static, nrf52::rtc::Rtc<'static>>,
+            led,
+            (0, 0),
+            (1, 0),
+            (2, 0),
+            (3, 0),
+            (4, 0),
+            (0, 1),
+            (1, 1),
+            (2, 1),
+            (3, 1),
+            (4, 1),
+            (0, 2),
+            (1, 2),
+            (2, 2),
+            (3, 2),
+            (4, 2),
+            (0, 3),
+            (1, 3),
+            (2, 3),
+            (3, 3),
+            (4, 3),
+            (0, 4),
+            (1, 4),
+            (2, 4),
+            (3, 4),
+            (4, 4)
+        )
+    ));
+
 
     //--------------------------------------------------------------------------
     // Process Console
@@ -602,6 +658,7 @@ pub unsafe fn main() {
 
         scheduler,
         systick: cortexm4::systick::SysTick::new_with_calibration(64000000),
+        glyph_display,
     };
 
     let chip = static_init!(
