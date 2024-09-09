@@ -2,9 +2,9 @@
 use kernel::hil::led::Led;
 use kernel::process::{Error, ProcessId};
 use kernel::syscall::{CommandReturn, SyscallDriver};
-use kernel::ErrorCode;
+use kernel::{debug, ErrorCode};
 
-pub const DRIVER_NUM: usize = 0xa0002;
+pub const DRIVER_NUM: usize = 0xa0001;
 
 const DIGITS: [u32; 10] = [
     0b11111_10011_10101_11001_11111, // 0

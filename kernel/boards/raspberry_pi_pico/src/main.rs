@@ -9,6 +9,7 @@
 #![deny(missing_docs)]
 #![feature(asm, naked_functions)]
 
+use capsules::led_matrix::LedMatrixLed;
 use capsules::virtual_alarm::VirtualMuxAlarm;
 use components::gpio::GpioComponent;
 use components::led::LedsComponent;
@@ -77,6 +78,10 @@ pub struct RaspberryPiPico {
 
     scheduler: &'static RoundRobinSched<'static>,
     systick: cortexm0p::systick::SysTick,
+    glyph_display: &'static drivers::glyph_display::GlyphDisplay<
+        'static,
+        LedMatrixLed<'static, RPGpioPin<'static>, VirtualMuxAlarm<'static, RPTimer<'static>>>
+    >
 }
 
 impl SyscallDriverLookup for RaspberryPiPico {
@@ -84,6 +89,8 @@ impl SyscallDriverLookup for RaspberryPiPico {
     where
         F: FnOnce(Option<&dyn SyscallDriver>) -> R,
     {
+        // debug!("SyscallDriverLookup::with_driver: driver_num={}", driver_num);
+
         match driver_num {
             capsules::console::DRIVER_NUM => f(Some(self.console)),
             capsules::alarm::DRIVER_NUM => f(Some(self.alarm)),
@@ -92,6 +99,7 @@ impl SyscallDriverLookup for RaspberryPiPico {
             kernel::ipc::DRIVER_NUM => f(Some(&self.ipc)),
             capsules::adc::DRIVER_NUM => f(Some(self.adc)),
             capsules::temperature::DRIVER_NUM => f(Some(self.temperature)),
+            drivers::glyph_display::DRIVER_NUM => f(Some(self.glyph_display)),
             _ => f(None),
         }
     }
@@ -364,7 +372,6 @@ pub unsafe fn main() {
             24 => &peripherals.pins.get_pin(RPGpio::GPIO24),
             // LED pin
             // 25 => &peripherals.pins.get_pin(RPGpio::GPIO25),
-
             // Uncomment to use these as GPIO pins instead of ADC pins
             // 26 => &peripherals.pins.get_pin(RPGpio::GPIO26),
             // 27 => &peripherals.pins.get_pin(RPGpio::GPIO27),
@@ -381,6 +388,7 @@ pub unsafe fn main() {
     .finalize(components::led_component_buf!(
         LedHigh<'static, RPGpioPin<'static>>
     ));
+
 
     peripherals.adc.init();
 
@@ -424,6 +432,86 @@ pub unsafe fn main() {
                 adc_channel_2,
                 adc_channel_3,
             ));
+
+
+    // LED Matrix
+    let led_matrix_driver = components::led_matrix_component_helper!(
+        RPGpioPin<'static>,
+        RPTimer<'static>,
+        mux_alarm,
+        @fps => 60,
+        @cols => kernel::hil::gpio::ActivationMode::ActiveHigh,
+            &peripherals.pins.get_pin(RPGpio::GPIO2),
+            &peripherals.pins.get_pin(RPGpio::GPIO3),
+            &peripherals.pins.get_pin(RPGpio::GPIO4),
+            &peripherals.pins.get_pin(RPGpio::GPIO5),
+            &peripherals.pins.get_pin(RPGpio::GPIO6),
+        @rows => kernel::hil::gpio::ActivationMode::ActiveLow,
+            &peripherals.pins.get_pin(RPGpio::GPIO7),
+            &peripherals.pins.get_pin(RPGpio::GPIO8),
+            &peripherals.pins.get_pin(RPGpio::GPIO9),
+            &peripherals.pins.get_pin(RPGpio::GPIO10),
+            &peripherals.pins.get_pin(RPGpio::GPIO11),
+
+    )
+        .finalize(components::led_matrix_component_buf!(
+        RPGpioPin<'static>,
+        RPTimer<'static>
+    ));
+
+    debug!("Initialization glyph_display.");
+
+    // Initialize the DigitLetterDisplay using the static_init! macro
+    // This returns a 'static reference to the newly created DigitLetterDisplay structure
+    let glyph_display = static_init!(
+        // The driver's concrete data type
+        drivers::glyph_display::GlyphDisplay<
+            // 'a becomes 'static
+            'static,
+            // L: Led becomes LedMatrixLed<...>
+            LedMatrixLed<
+                'static,
+                RPGpioPin<'static>,
+                VirtualMuxAlarm<'static, RPTimer<'static>>,
+            >,
+        >,
+        // Calling the new function to initialize the driver
+        // This uses the led_matrix_leds macro to extract each LED from the
+        // LED matrix.
+        //   - (0, 0) is the upper left LED
+        //   - (4, 4) is the lower right LED
+        drivers::glyph_display::GlyphDisplay::new(components::led_matrix_leds!(
+            RPGpioPin<'static>,
+            VirtualMuxAlarm<'static, RPTimer<'static>>,
+            led_matrix_driver,
+            (0, 0),
+            (1, 0),
+            (2, 0),
+            (3, 0),
+            (4, 0),
+            (0, 1),
+            (1, 1),
+            (2, 1),
+            (3, 1),
+            (4, 1),
+            (0, 2),
+            (1, 2),
+            (2, 2),
+            (3, 2),
+            (4, 2),
+            (0, 3),
+            (1, 3),
+            (2, 3),
+            (3, 3),
+            (4, 3),
+            (0, 4),
+            (1, 4),
+            (2, 4),
+            (3, 4),
+            (4, 4)
+        ))
+    );
+
     // PROCESS CONSOLE
     let process_console =
         components::process_console::ProcessConsoleComponent::new(board_kernel, uart_mux)
@@ -448,6 +536,7 @@ pub unsafe fn main() {
 
         scheduler,
         systick: cortexm0p::systick::SysTick::new_with_calibration(125_000_000),
+        glyph_display,
     };
 
     let platform_type = match peripherals.sysinfo.get_platform() {
